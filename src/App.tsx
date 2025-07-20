@@ -1,9 +1,12 @@
-import CashbackOptimizer from './CashbackOptimizer'
+import React from 'react';
+import CashbackOptimizerResponsive from './CashbackOptimizerResponsive';
 
 function App() {
   return (
-    <CashbackOptimizer />
-  )
+    <div className="App">
+      <CashbackOptimizerResponsive />
+    </div>
+  );
 }
 
-export default App 
+export default App; 

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Target, Award, Calculator, Download, Calendar, AlertTriangle, DollarSign, Settings, Plus, X, Star } from 'lucide-react';
+import { Target, Award, Calculator, Download, Calendar, AlertTriangle, DollarSign, Settings, Plus, X, Star, Menu, ChevronDown } from 'lucide-react';
 
-const CashbackOptimizer = () => {
-  // Основные категории из ваших скриншотов (теперь редактируемые)
+const CashbackOptimizerResponsive = () => {
+  // Основные категории
   const [categories, setCategories] = useState([
     'Автоуслуги', 'АЗС', 'Аксессуары', 'Аптека', 'Все покупки', 'Деливери',
     'Детские товары', 'Дом и ремонт', 'Искусство', 'Кафе и рестораны',
@@ -19,6 +19,10 @@ const CashbackOptimizer = () => {
     { name: 'Тинькофф', maxCategories: 4, cashbackLimit: 3000 }
   ]);
 
+  // Состояние для мобильного меню
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('table');
+
   // Функция для генерации месяцев для выбранного года
   const generateMonthsForYear = (year) => {
     const months = [];
@@ -32,8 +36,8 @@ const CashbackOptimizer = () => {
   const getMonthName = (monthCode) => {
     const [year, month] = monthCode.split('-');
     const monthNames = [
-      'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-      'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
+      'Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн',
+      'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'
     ];
     const monthIndex = parseInt(month) - 1;
     return `${monthNames[monthIndex]} ${year}`;
@@ -91,18 +95,15 @@ const CashbackOptimizer = () => {
           updated[month] = {};
         }
         
-        // Добавляем новые категории
         categories.forEach(category => {
           if (!updated[month][category]) {
             updated[month][category] = {};
           }
-          // Добавляем новые банки
           banks.forEach(bank => {
             if (updated[month][category][bank.name] === undefined) {
               updated[month][category][bank.name] = '';
             }
           });
-          // Удаляем банки которых больше нет
           Object.keys(updated[month][category]).forEach(bankName => {
             if (!banks.find(b => b.name === bankName)) {
               delete updated[month][category][bankName];
@@ -110,7 +111,6 @@ const CashbackOptimizer = () => {
           });
         });
         
-        // Удаляем категории которых больше нет
         Object.keys(updated[month]).forEach(category => {
           if (!categories.includes(category)) {
             delete updated[month][category];
@@ -127,11 +127,9 @@ const CashbackOptimizer = () => {
     const currentYear = currentDate.getFullYear();
     const currentMonthNum = currentDate.getMonth() + 1;
     
-    // Если выбранный год совпадает с текущим, используем текущий месяц
     if (selectedYear === currentYear) {
       setCurrentMonth(`${currentYear}-${currentMonthNum.toString().padStart(2, '0')}`);
     } else {
-      // Иначе используем январь выбранного года
       setCurrentMonth(`${selectedYear}-01`);
     }
   }, [selectedYear]);
@@ -143,14 +141,10 @@ const CashbackOptimizer = () => {
       const lowerCategory = category.toLowerCase();
       const lowerPriority = priority.toLowerCase();
       
-      // Точное совпадение
       if (lowerCategory === lowerPriority) return true;
-      
-      // Частичное совпадение (для гибкости)
       if (lowerCategory.includes(lowerPriority) || lowerPriority.includes(lowerCategory)) {
         return true;
       }
-      
       return false;
     });
   };
@@ -221,7 +215,6 @@ const CashbackOptimizer = () => {
   const optimizeSelection = () => {
     const allOffers = [];
     
-    // Создаем список всех предложений с расчетом реального кешбека
     Object.entries(data).forEach(([category, bankData]) => {
       Object.entries(bankData).forEach(([bankName, rate]) => {
         if (rate && !isNaN(parseFloat(rate))) {
@@ -244,7 +237,6 @@ const CashbackOptimizer = () => {
       });
     });
 
-    // Сортируем: сначала приоритетные, затем по реальному кешбеку
     allOffers.sort((a, b) => {
       if (a.isPriority !== b.isPriority) {
         return b.isPriority - a.isPriority;
@@ -268,7 +260,6 @@ const CashbackOptimizer = () => {
       limitWarnings: []
     };
 
-    // Выбираем категории
     allOffers.forEach(offer => {
       const bankSelection = result.selections[offer.bankIndex];
       
@@ -363,10 +354,9 @@ const CashbackOptimizer = () => {
 
   const getCellStyle = (category, bankName) => {
     const isSelected = optimization?.selectedCells.has(`${category}-${bankName}`);
-    const isPriority = checkIsPriority(category);
     const hasValue = data[category]?.[bankName] && !isNaN(parseFloat(data[category][bankName]));
     
-    let className = "w-10 h-6 text-center border border-gray-300 text-xs rounded ";
+    let className = "w-full h-8 text-center border border-gray-300 text-xs rounded focus:ring-1 focus:ring-blue-500 ";
     
     if (isSelected) {
       className += "bg-green-200 border-green-500 font-semibold shadow-sm ";
@@ -389,37 +379,99 @@ const CashbackOptimizer = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Заголовок */}
-      <div className="bg-white shadow-sm border-b border-gray-200 px-4 py-2">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-2">
-            <Target className="text-blue-600" size={24} />
-            <h1 className="text-xl font-bold text-gray-800">Оптимизатор кешбека</h1>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            {/* Выбор года */}
-            <div className="flex items-center gap-1">
-              <Calendar className="text-gray-600" size={16} />
-              <select 
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 bg-white"
+      {/* Адаптивный заголовок */}
+      <div className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          {/* Мобильная версия заголовка */}
+          <div className="flex flex-col space-y-3 sm:hidden">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Target className="text-blue-600" size={20} />
+                <h1 className="text-lg font-bold text-gray-800">Оптимизатор кешбека</h1>
+              </div>
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="p-2 text-gray-600 hover:text-gray-800"
               >
-                {Array.from({length: 10}, (_, i) => new Date().getFullYear() - 2 + i).map(year => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
-              </select>
+                <Menu size={20} />
+              </button>
             </div>
             
-            {/* Выбор месяца */}
-            <div className="flex items-center gap-1">
+            {/* Мобильное меню */}
+            {mobileMenuOpen && (
+              <div className="bg-gray-50 rounded-lg p-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Calendar className="text-gray-600" size={16} />
+                  <select 
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                    className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                  >
+                    {Array.from({length: 10}, (_, i) => new Date().getFullYear() - 2 + i).map(year => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <select 
+                    value={currentMonth}
+                    onChange={(e) => setCurrentMonth(e.target.value)}
+                    className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                  >
+                    {months.map(month => (
+                      <option key={month} value={month}>
+                        {getMonthName(month)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowSettings(!showSettings)}
+                    className="flex-1 px-3 py-2 bg-gray-600 text-white rounded text-sm flex items-center justify-center gap-1"
+                  >
+                    <Settings size={14} />
+                    Настройки
+                  </button>
+                  <button
+                    onClick={loadSampleData}
+                    className="flex-1 px-3 py-2 bg-blue-500 text-white rounded text-sm flex items-center justify-center gap-1"
+                  >
+                    <Download size={14} />
+                    Пример
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Десктопная версия заголовка */}
+          <div className="hidden sm:flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Target className="text-blue-600" size={24} />
+              <h1 className="text-xl font-bold text-gray-800">Оптимизатор кешбека</h1>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1">
+                <Calendar className="text-gray-600" size={16} />
+                <select 
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                  className="px-2 py-1 border border-gray-300 rounded text-sm"
+                >
+                  {Array.from({length: 10}, (_, i) => new Date().getFullYear() - 2 + i).map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+              
               <select 
                 value={currentMonth}
                 onChange={(e) => setCurrentMonth(e.target.value)}
-                className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 bg-white"
+                className="px-2 py-1 border border-gray-300 rounded text-sm"
               >
                 {months.map(month => (
                   <option key={month} value={month}>
@@ -427,60 +479,66 @@ const CashbackOptimizer = () => {
                   </option>
                 ))}
               </select>
-            </div>
 
-            <div className="flex gap-1">
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                className="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors flex items-center gap-1"
-              >
-                <Settings size={14} />
-                Настройки
-              </button>
-              <button
-                onClick={loadSampleData}
-                className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition-colors flex items-center gap-1"
-              >
-                <Download size={14} />
-                Пример
-              </button>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setShowSettings(!showSettings)}
+                  className="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors flex items-center gap-1"
+                >
+                  <Settings size={14} />
+                  Настройки
+                </button>
+                <button
+                  onClick={loadSampleData}
+                  className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition-colors flex items-center gap-1"
+                >
+                  <Download size={14} />
+                  Пример
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-3 py-2">
+      <div className="max-w-7xl mx-auto px-4 py-3">
         {/* Панель настроек */}
         {showSettings && (
-          <div className="mb-2 bg-white rounded-lg shadow-sm border border-gray-200 p-3">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="mb-4 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Настройки банков */}
               <div>
-                <h3 className="font-semibold text-gray-800 mb-3 text-sm">⚙️ Банки и лимиты</h3>
+                <h3 className="font-semibold text-gray-800 mb-4">⚙️ Банки и лимиты</h3>
                 <div className="space-y-3">
                   {banks.map((bank, index) => (
-                    <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded border">
+                    <div key={index} className="flex flex-col sm:flex-row items-start sm:items-center gap-2 p-3 bg-gray-50 rounded border">
                       <input
                         type="text"
                         value={bank.name}
                         onChange={(e) => updateBank(index, 'name', e.target.value)}
-                        className="flex-1 p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                        className="flex-1 p-2 border border-gray-300 rounded text-sm"
+                        placeholder="Название банка"
                       />
-                      <input
-                        type="number"
-                        value={bank.maxCategories}
-                        onChange={(e) => updateBank(index, 'maxCategories', parseInt(e.target.value) || 1)}
-                        className="w-16 p-2 border border-gray-300 rounded text-sm text-center"
-                        min="1" max="10"
-                      />
-                      <input
-                        type="number"
-                        value={bank.cashbackLimit}
-                        onChange={(e) => updateBank(index, 'cashbackLimit', parseInt(e.target.value) || 1000)}
-                        className="w-20 p-2 border border-gray-300 rounded text-sm text-center"
-                        min="1000" step="500"
-                      />
-                      <span className="text-sm text-gray-500">₽</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={bank.maxCategories}
+                          onChange={(e) => updateBank(index, 'maxCategories', parseInt(e.target.value) || 1)}
+                          className="w-16 p-2 border border-gray-300 rounded text-sm text-center"
+                          min="1" max="10"
+                        />
+                        <span className="text-sm text-gray-500">кат.</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={bank.cashbackLimit}
+                          onChange={(e) => updateBank(index, 'cashbackLimit', parseInt(e.target.value) || 1000)}
+                          className="w-20 p-2 border border-gray-300 rounded text-sm text-center"
+                          min="1000" step="500"
+                        />
+                        <span className="text-sm text-gray-500">₽</span>
+                      </div>
                       {banks.length > 1 && (
                         <button
                           onClick={() => removeBank(index)}
@@ -509,7 +567,7 @@ const CashbackOptimizer = () => {
                     type="text"
                     value={newCategory}
                     onChange={(e) => setNewCategory(e.target.value)}
-                    className="flex-1 p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                    className="flex-1 p-2 border border-gray-300 rounded text-sm"
                     placeholder="Новая категория"
                     onKeyPress={(e) => e.key === 'Enter' && addCategory()}
                   />
@@ -540,8 +598,8 @@ const CashbackOptimizer = () => {
 
             {/* Настройка трат */}
             <div className="mt-6 pt-6 border-t border-gray-200">
-              <h3 className="font-semibold text-gray-800 mb-4">💰 Месячные траты (для расчета лимитов)</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <h3 className="font-semibold text-gray-800 mb-4">💰 Месячные траты</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {Object.entries(categorySpending).map(([category, amount]) => (
                   <div key={category}>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -554,7 +612,7 @@ const CashbackOptimizer = () => {
                         ...prev,
                         [category]: parseInt(e.target.value) || 0
                       }))}
-                      className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                      className="w-full p-2 border border-gray-300 rounded text-sm"
                     />
                   </div>
                 ))}
@@ -563,41 +621,70 @@ const CashbackOptimizer = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-12 gap-2">
-          {/* Основная таблица */}
-          <div className="col-span-12 lg:col-span-8">
+        {/* Мобильные табы */}
+        <div className="sm:hidden mb-4">
+          <div className="flex bg-white rounded-lg shadow-sm border border-gray-200 p-1">
+            <button
+              onClick={() => setActiveTab('table')}
+              className={`flex-1 py-2 px-3 rounded text-sm font-medium transition-colors ${
+                activeTab === 'table' 
+                  ? 'bg-blue-500 text-white' 
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              Таблица
+            </button>
+            <button
+              onClick={() => setActiveTab('stats')}
+              className={`flex-1 py-2 px-3 rounded text-sm font-medium transition-colors ${
+                activeTab === 'stats' 
+                  ? 'bg-blue-500 text-white' 
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              Статистика
+            </button>
+          </div>
+        </div>
+
+        {/* Основной контент */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          {/* Таблица - скрыта на мобильных если не активна */}
+          <div className={`${activeTab === 'table' ? 'block' : 'hidden'} sm:block lg:col-span-8`}>
             <div className="bg-white rounded-lg shadow-sm border border-gray-200">
               {/* Копирование из предыдущего месяца */}
               {months.indexOf(currentMonth) > 0 && (
                 <div className="p-4 border-b border-gray-200 bg-blue-50">
-                  <button
-                    onClick={copyFromPreviousMonth}
-                    className="text-sm px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                  >
-                    📋 Скопировать из {getMonthName(months[months.indexOf(currentMonth) - 1])}
-                  </button>
-                  <button
-                    onClick={clearCurrentMonth}
-                    className="ml-2 text-sm px-3 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
-                  >
-                    Очистить
-                  </button>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button
+                      onClick={copyFromPreviousMonth}
+                      className="text-sm px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                    >
+                      📋 Скопировать из {getMonthName(months[months.indexOf(currentMonth) - 1])}
+                    </button>
+                    <button
+                      onClick={clearCurrentMonth}
+                      className="text-sm px-3 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                    >
+                      Очистить
+                    </button>
+                  </div>
                 </div>
               )}
 
-              {/* Таблица */}
+              {/* Адаптивная таблица */}
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="text-left p-1 font-semibold text-gray-800 sticky left-0 bg-gray-50 z-10 min-w-[120px] text-xs">
+                      <th className="text-left p-2 font-semibold text-gray-800 sticky left-0 bg-gray-50 z-10 min-w-[140px] text-sm">
                         Категория
                       </th>
                       {banks.map(bank => (
-                        <th key={bank.name} className="text-center p-1 font-semibold text-gray-800 min-w-[60px] text-xs">
+                        <th key={bank.name} className="text-center p-2 font-semibold text-gray-800 min-w-[80px] text-sm">
                           <div>{bank.name}</div>
                           <div className="text-xs font-normal text-gray-500">
-                            {bank.maxCategories} кат. | {formatMoney(bank.cashbackLimit)}
+                            {bank.maxCategories} кат.
                           </div>
                         </th>
                       ))}
@@ -606,26 +693,25 @@ const CashbackOptimizer = () => {
                   <tbody>
                     {categories.map((category, index) => (
                       <tr key={category} className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="p-1 sticky left-0 bg-white z-10 border-r border-gray-200">
+                        <td className="p-2 sticky left-0 bg-white z-10 border-r border-gray-200">
                           <div className="flex items-center justify-between">
-                            <span className={`${checkIsPriority(category) ? 'text-blue-600 font-semibold' : 'text-gray-800'} text-xs`}>
+                            <span className={`${checkIsPriority(category) ? 'text-blue-600 font-semibold' : 'text-gray-800'} text-sm`}>
                               {category}
                             </span>
                             <button
                               onClick={() => togglePriority(category)}
-                              className={`p-0.5 rounded transition-colors ${
+                              className={`p-1 rounded transition-colors ${
                                 checkIsPriority(category) 
                                   ? 'text-yellow-500 hover:text-yellow-600' 
                                   : 'text-gray-300 hover:text-yellow-400'
                               }`}
-                              title={checkIsPriority(category) ? 'Убрать из приоритетных' : 'Добавить в приоритетные'}
                             >
-                              <Star size={12} fill={checkIsPriority(category) ? 'currentColor' : 'none'} />
+                              <Star size={14} fill={checkIsPriority(category) ? 'currentColor' : 'none'} />
                             </button>
                           </div>
                         </td>
                         {banks.map(bank => (
-                          <td key={bank.name} className="p-1 text-center">
+                          <td key={bank.name} className="p-2 text-center">
                             <input
                               type="number"
                               step="0.1"
@@ -644,37 +730,37 @@ const CashbackOptimizer = () => {
             </div>
           </div>
 
-          {/* Боковая панель с результатами */}
-          <div className="col-span-12 lg:col-span-4">
-            <div className="space-y-3">
+          {/* Боковая панель - скрыта на мобильных если не активна */}
+          <div className={`${activeTab === 'stats' ? 'block' : 'hidden'} sm:block lg:col-span-4`}>
+            <div className="space-y-4">
               {/* Статистика */}
               {optimization && (
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-                  <h3 className="font-semibold text-gray-800 mb-3 text-sm">📊 Результаты</h3>
+                  <h3 className="font-semibold text-gray-800 mb-4">📊 Результаты</h3>
                   
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-sm">
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
                       <span className="text-gray-600">Приоритеты:</span>
                       <span className="font-semibold text-blue-600">
                         {optimization.priorityCovered}/{priorityCategories.length}
                       </span>
                     </div>
                     
-                    <div className="flex justify-between items-center text-sm">
+                    <div className="flex justify-between items-center">
                       <span className="text-gray-600">Сумма %:</span>
                       <span className="font-semibold text-green-600">
                         {optimization.totalValue.toFixed(1)}%
                       </span>
                     </div>
                     
-                    <div className="flex justify-between items-center text-sm">
+                    <div className="flex justify-between items-center">
                       <span className="text-gray-600">Кешбек:</span>
-                      <span className="font-bold text-emerald-600 text-base">
+                      <span className="font-bold text-emerald-600 text-lg">
                         {formatMoney(optimization.totalRealCashback)}
                       </span>
                     </div>
                     
-                    <div className="flex justify-between items-center text-sm">
+                    <div className="flex justify-between items-center">
                       <span className="text-gray-600">Выбрано:</span>
                       <span className="font-semibold text-yellow-600">
                         {optimization.selectedCells.size} категорий
@@ -716,9 +802,9 @@ const CashbackOptimizer = () => {
               {/* Рекомендации */}
               {optimization && (
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-                  <h3 className="font-semibold text-gray-800 mb-3 text-sm">🎯 Рекомендации</h3>
+                  <h3 className="font-semibold text-gray-800 mb-4">🎯 Рекомендации</h3>
                   
-                  <div className="space-y-2">
+                  <div className="space-y-4">
                     {optimization.selections.map((selection, index) => (
                       selection.categories.length > 0 && (
                         <div key={index} className="border-l-4 border-green-500 pl-3">
@@ -760,8 +846,8 @@ const CashbackOptimizer = () => {
         </div>
 
         {/* Подсказки */}
-        <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded-lg p-2">
-          <div className="text-xs text-yellow-800">
+        <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+          <div className="text-sm text-yellow-800">
             <strong>💡 Быстрые действия:</strong> ⭐ = приоритет • 🟢 = рекомендации • 🔵 = данные
           </div>
         </div>
@@ -770,4 +856,4 @@ const CashbackOptimizer = () => {
   );
 };
 
-export default CashbackOptimizer;
+export default CashbackOptimizerResponsive; 
