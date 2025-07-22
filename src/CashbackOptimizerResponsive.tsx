@@ -203,13 +203,13 @@ const CashbackOptimizerResponsive = () => {
         const docSnap = await getDoc(docRef);
         
         if (docSnap.exists()) {
-          const data = docSnap.data() as SyncedMonthData;
+          const data = docSnap.data() as Partial<SyncedMonthData>;
           console.log('Данные загружены:', data);
-          setMonthlyData(prev => ({ ...prev, [currentMonth]: data.monthlyData || {} }));
-          setBanks(data.banks || []);
-          setCategories((data.categories || []).sort((a, b) => a.localeCompare(b, 'ru')));
-          setPriorityCategories(data.priorityCategories || []);
-          setCategorySpending(data.categorySpending || {});
+          setMonthlyData(prev => ({ ...prev, [currentMonth]: data.monthlyData || prev[currentMonth] || {} }));
+          setBanks(data.banks || banks);
+          setCategories((data.categories || categories).sort((a, b) => a.localeCompare(b, 'ru')));
+          setPriorityCategories(data.priorityCategories || priorityCategories);
+          setCategorySpending(data.categorySpending || categorySpending);
         } else {
           console.log('Данные для месяца не найдены');
         }
