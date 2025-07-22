@@ -1,7 +1,61 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Target, Award, Calculator, Download, Calendar, AlertTriangle, DollarSign, Settings, Plus, X, Star, Menu, ChevronDown } from 'lucide-react';
+import { db } from './lib/utils';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { useAuth } from './components/AuthProvider';
+
+// Типизация для структуры monthlyData
+interface MonthlyData {
+  [category: string]: {
+    [bankName: string]: string;
+  };
+}
+interface AllMonthlyData {
+  [month: string]: MonthlyData;
+}
+
+// Тип для банка
+interface Bank {
+  name: string;
+  maxCategories: number;
+  cashbackLimit: number;
+}
+
+// Тип для результата оптимизации
+interface OptimizationResult {
+  selections: {
+    bankName: string;
+    categories: {
+      category: string;
+      rate: number;
+      isPriority: boolean;
+      spending: number;
+      realCashback: number;
+      isLimitHit: boolean;
+    }[];
+    maxCategories: number;
+    totalCashback: number;
+    cashbackLimit: number;
+  }[];
+  usedCategories: Set<string>;
+  totalValue: number;
+  totalRealCashback: number;
+  priorityCovered: number;
+  selectedCells: Set<string>;
+  limitWarnings: { bank: string; category: string; limit: number }[];
+}
+
+// Тип для полного состояния месяца
+interface SyncedMonthData {
+  monthlyData: MonthlyData;
+  banks: Bank[];
+  categories: string[];
+  priorityCategories: string[];
+  categorySpending: Record<string, number>;
+}
 
 const CashbackOptimizerResponsive = () => {
+  const { user } = useAuth();
   // Основные категории
   const [categories, setCategories] = useState([
     'Автоуслуги', 'АЗС', 'Аксессуары', 'Аптека', 'Все покупки', 'Деливери',
@@ -24,8 +78,8 @@ const CashbackOptimizerResponsive = () => {
   const [activeTab, setActiveTab] = useState('table');
 
   // Функция для генерации месяцев для выбранного года
-  const generateMonthsForYear = (year) => {
-    const months = [];
+  const generateMonthsForYear = (year: number) => {
+    const months: string[] = [];
     for (let month = 1; month <= 12; month++) {
       months.push(`${year}-${month.toString().padStart(2, '0')}`);
     }
@@ -33,7 +87,7 @@ const CashbackOptimizerResponsive = () => {
   };
 
   // Функция для получения названия месяца
-  const getMonthName = (monthCode) => {
+  const getMonthName = (monthCode: string) => {
     const [year, month] = monthCode.split('-');
     const monthNames = [
       'Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн',
@@ -52,8 +106,8 @@ const CashbackOptimizerResponsive = () => {
     const currentMonthNum = currentDate.getMonth() + 1;
     return `${currentYear}-${currentMonthNum.toString().padStart(2, '0')}`;
   });
-  const [monthlyData, setMonthlyData] = useState(() => {
-    const initialMonthlyData = {};
+  const [monthlyData, setMonthlyData] = useState<AllMonthlyData>(() => {
+    const initialMonthlyData: AllMonthlyData = {};
     months.forEach(month => {
       initialMonthlyData[month] = {};
     });
@@ -61,13 +115,13 @@ const CashbackOptimizerResponsive = () => {
   });
 
   // Траты по категориям для расчета лимитов
-  const [categorySpending, setCategorySpending] = useState({
+  const [categorySpending, setCategorySpending] = useState<Record<string, number>>({
     'Автоуслуги': 5000, 'АЗС': 8000, 'Все покупки': 30000, 'Детские товары': 10000,
     'Кафе и рестораны': 15000, 'Супермаркеты': 25000, 'Транспорт': 8000, 'Такси': 5000,
     'Образование': 3000, 'Красота': 4000, 'Спорттовары': 3000, 'Театры и кино': 2000
   });
 
-  const [optimization, setOptimization] = useState(null);
+  const [optimization, setOptimization] = useState<OptimizationResult | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [newCategory, setNewCategory] = useState('');
   
@@ -75,8 +129,8 @@ const CashbackOptimizerResponsive = () => {
   const [priorityCategories, setPriorityCategories] = useState(['Супермаркеты', 'Кафе и рестораны', 'Все покупки']);
 
   // Функция для создания пустой структуры данных
-  const createEmptyData = () => {
-    const newData = {};
+  const createEmptyData = (): MonthlyData => {
+    const newData: MonthlyData = {};
     categories.forEach(category => {
       newData[category] = {};
       banks.forEach(bank => {
@@ -134,9 +188,69 @@ const CashbackOptimizerResponsive = () => {
     }
   }, [selectedYear]);
 
-  const data = monthlyData[currentMonth] || {};
+  // Загрузка данных из Firestore при смене месяца
+  useEffect(() => {
+    if (!user?.uid) return;
+    
+    async function fetchData() {
+      try {
+        console.log('Загрузка данных из Firestore:', {
+          userId: user?.uid,
+          month: currentMonth
+        });
+        
+        const docRef = doc(db, 'users', user.uid, 'monthlyData', currentMonth);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+          const data = docSnap.data() as SyncedMonthData;
+          console.log('Данные загружены:', data);
+          setMonthlyData(prev => ({ ...prev, [currentMonth]: data.monthlyData || {} }));
+          setBanks(data.banks || []);
+          setCategories((data.categories || []).sort((a, b) => a.localeCompare(b, 'ru')));
+          setPriorityCategories(data.priorityCategories || []);
+          setCategorySpending(data.categorySpending || {});
+        } else {
+          console.log('Данные для месяца не найдены');
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки данных:', error);
+      }
+    }
+    fetchData();
+  }, [currentMonth, user?.uid]);
 
-  const checkIsPriority = (category) => {
+  // Сохранение данных в Firestore при изменении состояния
+  useEffect(() => {
+    if (!user?.uid) return;
+    
+    const timeoutId = setTimeout(async () => {
+      try {
+        const data: SyncedMonthData = {
+          monthlyData: monthlyData[currentMonth] || {},
+          banks,
+          categories,
+          priorityCategories,
+          categorySpending
+        };
+        console.log('Сохранение данных в Firestore:', {
+          userId: user?.uid,
+          month: currentMonth,
+          data
+        });
+        await setDoc(doc(db, 'users', user.uid, 'monthlyData', currentMonth), data);
+        console.log('Данные успешно сохранены');
+      } catch (error) {
+        console.error('Ошибка сохранения данных:', error);
+      }
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [monthlyData[currentMonth], banks, categories, priorityCategories, categorySpending, currentMonth, user?.uid]);
+
+  const data: MonthlyData = monthlyData[currentMonth] || {};
+
+  const checkIsPriority = (category: string) => {
     return priorityCategories.some(priority => {
       const lowerCategory = category.toLowerCase();
       const lowerPriority = priority.toLowerCase();
@@ -150,7 +264,7 @@ const CashbackOptimizerResponsive = () => {
   };
 
   // Функции управления приоритетами
-  const togglePriority = (category) => {
+  const togglePriority = (category: string) => {
     if (checkIsPriority(category)) {
       setPriorityCategories(prev => prev.filter(p => {
         const lowerP = p.toLowerCase();
@@ -165,12 +279,12 @@ const CashbackOptimizerResponsive = () => {
   // Функции управления категориями
   const addCategory = () => {
     if (newCategory.trim() && !categories.includes(newCategory.trim())) {
-      setCategories(prev => [...prev, newCategory.trim()]);
+      setCategories(prev => [...prev, newCategory.trim()].sort((a, b) => a.localeCompare(b, 'ru')));
       setNewCategory('');
     }
   };
 
-  const removeCategory = (categoryToRemove) => {
+  const removeCategory = (categoryToRemove: string) => {
     setCategories(prev => prev.filter(cat => cat !== categoryToRemove));
     setCategorySpending(prev => {
       const updated = { ...prev };
@@ -180,7 +294,7 @@ const CashbackOptimizerResponsive = () => {
   };
 
   // Функции управления банками
-  const updateBank = (index, field, value) => {
+  const updateBank = (index: number, field: string, value: any) => {
     setBanks(prev => prev.map((bank, i) => 
       i === index ? { ...bank, [field]: value } : bank
     ));
@@ -190,11 +304,11 @@ const CashbackOptimizerResponsive = () => {
     setBanks(prev => [...prev, { name: 'Новый банк', maxCategories: 3, cashbackLimit: 3000 }]);
   };
 
-  const removeBank = (indexToRemove) => {
+  const removeBank = (indexToRemove: number) => {
     setBanks(prev => prev.filter((_, i) => i !== indexToRemove));
   };
 
-  const updateData = (category, bankName, value) => {
+  const updateData = (category: string, bankName: string, value: string) => {
     setMonthlyData(prev => ({
       ...prev,
       [currentMonth]: {
@@ -207,13 +321,22 @@ const CashbackOptimizerResponsive = () => {
     }));
   };
 
-  const calculateCashback = (rate, spending, limit) => {
-    const cashback = spending * rate / 100;
-    return Math.min(cashback, limit);
+  const calculateCashback = (rate: number, spending: number, limit: number) => {
+    const cashback = Number(spending) * Number(rate) / 100;
+    return Math.min(cashback, Number(limit));
   };
 
   const optimizeSelection = () => {
-    const allOffers = [];
+    const allOffers: {
+      bankIndex: number;
+      bankName: string;
+      category: string;
+      rate: number;
+      isPriority: boolean;
+      spending: number;
+      realCashback: number;
+      isLimitHit: boolean;
+    }[] = [];
     
     Object.entries(data).forEach(([category, bankData]) => {
       Object.entries(bankData).forEach(([bankName, rate]) => {
@@ -244,7 +367,7 @@ const CashbackOptimizerResponsive = () => {
       return b.realCashback - a.realCashback;
     });
 
-    const result = {
+    const result: OptimizationResult = {
       selections: banks.map(bank => ({ 
         bankName: bank.name, 
         categories: [], 
@@ -303,7 +426,7 @@ const CashbackOptimizerResponsive = () => {
   }, [currentMonth, monthlyData, categorySpending, priorityCategories]);
 
   const loadSampleData = () => {
-    const sampleData = {
+    const sampleData: MonthlyData = {
       'Автоуслуги': { 'ВТБ': '', 'Альфа': '', 'Сбер': '', 'Тинькофф': '5.0' },
       'АЗС': { 'ВТБ': '3.0', 'Альфа': '5.0', 'Сбер': '', 'Тинькофф': '7.0' },
       'Все покупки': { 'ВТБ': '1.5', 'Альфа': '1.0', 'Сбер': '1.0', 'Тинькофф': '1.0' },
@@ -321,13 +444,10 @@ const CashbackOptimizerResponsive = () => {
     setMonthlyData(prev => ({
       ...prev,
       [currentMonth]: {
-        ...prev[currentMonth],
         ...Object.fromEntries(
-          Object.entries(sampleData).map(([category, bankData]) => [
-            category,
-            { ...(prev[currentMonth]?.[category] || {}), ...bankData }
-          ])
-        )
+          Object.entries(prev[currentMonth] || {}).map(([cat, val]) => [cat, { ...val }])
+        ),
+        ...sampleData
       }
     }));
   };
@@ -352,7 +472,7 @@ const CashbackOptimizerResponsive = () => {
     }
   };
 
-  const getCellStyle = (category, bankName) => {
+  const getCellStyle = (category: string, bankName: string) => {
     const isSelected = optimization?.selectedCells.has(`${category}-${bankName}`);
     const hasValue = data[category]?.[bankName] && !isNaN(parseFloat(data[category][bankName]));
     
@@ -369,7 +489,7 @@ const CashbackOptimizerResponsive = () => {
     return className;
   };
 
-  const formatMoney = (amount) => {
+  const formatMoney = (amount: number) => {
     return new Intl.NumberFormat('ru-RU', {
       style: 'currency',
       currency: 'RUB',
