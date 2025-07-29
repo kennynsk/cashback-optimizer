@@ -52,6 +52,7 @@ interface SyncedMonthData {
   categories: string[];
   priorityCategories: string[];
   categorySpending: Record<string, number>;
+  optimizationStrategy?: 'rate' | 'cashback'; // Добавляем новое поле
 }
 
 const CashbackOptimizerResponsive = () => {
@@ -129,6 +130,9 @@ const CashbackOptimizerResponsive = () => {
   // Приоритетные категории (настраиваемые)
   const [priorityCategories, setPriorityCategories] = useState(['Супермаркеты', 'Кафе и рестораны', 'Все покупки']);
 
+  // Добавляем состояние для стратегии оптимизации
+  const [optimizationStrategy, setOptimizationStrategy] = useState<'rate' | 'cashback'>('rate');
+
   // Функция для принудительного сохранения данных
   const forceSaveData = useCallback(async (updatedData?: Partial<SyncedMonthData>) => {
     const uid = user?.uid;
@@ -140,14 +144,15 @@ const CashbackOptimizerResponsive = () => {
         banks: updatedData?.banks || banks,
         categories: updatedData?.categories || categories,
         priorityCategories: updatedData?.priorityCategories || priorityCategories,
-        categorySpending: updatedData?.categorySpending || categorySpending
+        categorySpending: updatedData?.categorySpending || categorySpending,
+        optimizationStrategy: updatedData?.optimizationStrategy || optimizationStrategy // Сохраняем стратегию
       };
       
       await setDoc(doc(db, 'users', uid, 'monthlyData', currentMonth), dataToSave);
     } catch (error) {
       console.error('Ошибка принудительного сохранения данных:', error);
     }
-  }, [user?.uid, currentMonth, monthlyData, banks, categories, priorityCategories, categorySpending]);
+  }, [user?.uid, currentMonth, monthlyData, banks, categories, priorityCategories, categorySpending, optimizationStrategy]);
 
   // Функция для создания пустой структуры данных
   const createEmptyData = (): MonthlyData => {
@@ -327,7 +332,14 @@ const CashbackOptimizerResponsive = () => {
           }
           if (data.categorySpending) {
             setCategorySpending(data.categorySpending);
+          } else {
+            console.log('Траты не найдены в данных, оставляем текущие');
           }
+          
+          if (data.optimizationStrategy) {
+            setOptimizationStrategy(data.optimizationStrategy);
+          }
+          
           if (data.monthlyData) {
             setMonthlyData(prev => ({ ...prev, [currentMonth]: data.monthlyData || {} }));
           }
@@ -355,7 +367,8 @@ const CashbackOptimizerResponsive = () => {
           banks,
           categories,
           priorityCategories,
-          categorySpending
+          categorySpending,
+          optimizationStrategy // Добавляем в сохраняемые данные
         };
         const uid = user?.uid;
         if (uid) {
@@ -367,7 +380,7 @@ const CashbackOptimizerResponsive = () => {
     }, 1000);
 
     return () => clearTimeout(timeoutId);
-  }, [monthlyData, banks, categories, priorityCategories, categorySpending, currentMonth, user?.uid]);
+  }, [monthlyData, banks, categories, priorityCategories, categorySpending, currentMonth, user?.uid, optimizationStrategy]);
 
   const data: MonthlyData = monthlyData[currentMonth] || {};
 
@@ -541,11 +554,19 @@ const CashbackOptimizerResponsive = () => {
       });
     });
 
+    // Изменяем логику сортировки в зависимости от стратегии
     allOffers.sort((a, b) => {
       if (a.isPriority !== b.isPriority) {
         return (b.isPriority ? 1 : 0) - (a.isPriority ? 1 : 0);
       }
-      return b.realCashback - a.realCashback;
+      
+      if (optimizationStrategy === 'rate') {
+        // Сортировка по максимальному проценту
+        return b.rate - a.rate;
+      } else {
+        // Сортировка по максимальному реальному кешбеку
+        return b.realCashback - a.realCashback;
+      }
     });
 
     const result: OptimizationResult = {
@@ -604,7 +625,7 @@ const CashbackOptimizerResponsive = () => {
 
   useEffect(() => {
     optimizeSelection();
-  }, [currentMonth, monthlyData, categorySpending, priorityCategories]);
+  }, [currentMonth, monthlyData, categorySpending, priorityCategories, optimizationStrategy]);
 
   const loadSampleData = () => {
     const sampleData: MonthlyData = {
@@ -713,7 +734,8 @@ const CashbackOptimizerResponsive = () => {
           'Автоуслуги': 5000, 'АЗС': 8000, 'Все покупки': 30000, 'Детские товары': 10000,
           'Кафе и рестораны': 15000, 'Супермаркеты': 25000, 'Транспорт': 8000, 'Такси': 5000,
           'Образование': 3000, 'Красота': 4000, 'Спорттовары': 3000, 'Театры и кино': 2000
-        }
+        },
+        optimizationStrategy: 'rate' // Очищаем стратегию
       });
       
       console.log('Данные успешно очищены и сброшены к начальным значениям');
@@ -981,6 +1003,53 @@ const CashbackOptimizerResponsive = () => {
               </div>
             </div>
 
+            {/* Новая секция: Стратегия оптимизации */}
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-4">🎯 Стратегия оптимизации</h3>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="optimizationStrategy"
+                      value="rate"
+                      checked={optimizationStrategy === 'rate'}
+                      onChange={(e) => {
+                        const value = e.target.value as 'rate' | 'cashback';
+                        setOptimizationStrategy(value);
+                        // Принудительно сохраняем настройку
+                        setTimeout(() => forceSaveData({ optimizationStrategy: value }), 100);
+                      }}
+                      className="text-blue-600"
+                    />
+                    <span className="text-sm font-medium">Максимальный процент</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="optimizationStrategy"
+                      value="cashback"
+                      checked={optimizationStrategy === 'cashback'}
+                      onChange={(e) => {
+                        const value = e.target.value as 'rate' | 'cashback';
+                        setOptimizationStrategy(value);
+                        // Принудительно сохраняем настройку
+                        setTimeout(() => forceSaveData({ optimizationStrategy: value }), 100);
+                      }}
+                      className="text-blue-600"
+                    />
+                    <span className="text-sm font-medium">Максимальный кешбек</span>
+                  </label>
+                </div>
+                <div className="mt-2 text-sm text-gray-600">
+                  {optimizationStrategy === 'rate' 
+                    ? "Выбирает предложения с максимальным процентом кешбека"
+                    : "Выбирает предложения с максимальным реальным кешбеком (учитывает лимиты)"
+                  }
+                </div>
+              </div>
+            </div>
+
             {/* Настройка трат */}
             <div className="mt-6 pt-6 border-t border-gray-200">
               <h3 className="font-semibold text-gray-800 mb-4">💰 Месячные траты</h3>
@@ -1155,6 +1224,13 @@ const CashbackOptimizerResponsive = () => {
               {optimization && (
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                   <h3 className="font-semibold text-gray-800 mb-4">📊 Результаты</h3>
+                  
+                  {/* Индикатор стратегии */}
+                  <div className="mb-3 p-2 bg-blue-50 rounded border border-blue-200">
+                    <div className="text-xs text-blue-700 font-medium">
+                      Стратегия: {optimizationStrategy === 'rate' ? 'Максимальный процент' : 'Максимальный кешбек'}
+                    </div>
+                  </div>
                   
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
