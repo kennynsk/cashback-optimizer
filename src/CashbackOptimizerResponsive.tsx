@@ -124,9 +124,30 @@ const CashbackOptimizerResponsive = () => {
   const [optimization, setOptimization] = useState<OptimizationResult | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [newCategory, setNewCategory] = useState('');
+  const [dataLoaded, setDataLoaded] = useState(false); // Флаг загрузки данных
   
   // Приоритетные категории (настраиваемые)
   const [priorityCategories, setPriorityCategories] = useState(['Супермаркеты', 'Кафе и рестораны', 'Все покупки']);
+
+  // Функция для принудительного сохранения данных
+  const forceSaveData = useCallback(async (updatedData?: Partial<SyncedMonthData>) => {
+    const uid = user?.uid;
+    if (!uid) return;
+    
+    try {
+      const dataToSave: SyncedMonthData = {
+        monthlyData: updatedData?.monthlyData || monthlyData[currentMonth] || {},
+        banks: updatedData?.banks || banks,
+        categories: updatedData?.categories || categories,
+        priorityCategories: updatedData?.priorityCategories || priorityCategories,
+        categorySpending: updatedData?.categorySpending || categorySpending
+      };
+      
+      await setDoc(doc(db, 'users', uid, 'monthlyData', currentMonth), dataToSave);
+    } catch (error) {
+      console.error('Ошибка принудительного сохранения данных:', error);
+    }
+  }, [user?.uid, currentMonth, monthlyData, banks, categories, priorityCategories, categorySpending]);
 
   // Функция для создания пустой структуры данных
   const createEmptyData = (): MonthlyData => {
@@ -142,38 +163,61 @@ const CashbackOptimizerResponsive = () => {
 
   // Обновляем структуру данных при изменении категорий или банков
   useEffect(() => {
-    setMonthlyData(prev => {
-      const updated = { ...prev };
-      months.forEach(month => {
-        if (!updated[month]) {
-          updated[month] = {};
-        }
-        
-        categories.forEach(category => {
-          if (!updated[month][category]) {
-            updated[month][category] = {};
+    // Проверяем, что у нас есть данные для работы
+    if (categories.length === 0 || banks.length === 0) {
+      return;
+    }
+    
+    // Проверяем, что у нас есть пользователь (данные уже загружены)
+    if (!user?.uid) {
+      return;
+    }
+    
+    // Проверяем, что данные загружены
+    if (!dataLoaded) {
+      return;
+    }
+    
+    // Добавляем небольшую задержку, чтобы дать время загрузиться данным из Firebase
+    const timeoutId = setTimeout(() => {
+      setMonthlyData(prev => {
+        const updated = { ...prev };
+        months.forEach(month => {
+          if (!updated[month]) {
+            updated[month] = {};
           }
-          banks.forEach(bank => {
-            if (updated[month][category][bank.name] === undefined) {
-              updated[month][category][bank.name] = '';
+          
+          categories.forEach(category => {
+            if (!updated[month][category]) {
+              updated[month][category] = {};
             }
+            banks.forEach(bank => {
+              if (updated[month][category][bank.name] === undefined) {
+                updated[month][category][bank.name] = '';
+              }
+            });
+            // Удаляем только те банки, которых больше нет в списке
+            Object.keys(updated[month][category]).forEach(bankName => {
+              if (!banks.find(b => b.name === bankName)) {
+                delete updated[month][category][bankName];
+              }
+            });
           });
-          Object.keys(updated[month][category]).forEach(bankName => {
-            if (!banks.find(b => b.name === bankName)) {
-              delete updated[month][category][bankName];
+          
+          // Удаляем только те категории, которых больше нет в списке
+          Object.keys(updated[month]).forEach(category => {
+            if (!categories.includes(category)) {
+              delete updated[month][category];
             }
           });
         });
         
-        Object.keys(updated[month]).forEach(category => {
-          if (!categories.includes(category)) {
-            delete updated[month][category];
-          }
-        });
+        return updated;
       });
-      return updated;
-    });
-  }, [categories, banks, months]);
+    }, 500); // Задержка 500мс
+
+    return () => clearTimeout(timeoutId);
+  }, [categories, banks, months, user?.uid, dataLoaded]);
 
   // Обновляем текущий месяц при изменении года
   useEffect(() => {
@@ -188,37 +232,117 @@ const CashbackOptimizerResponsive = () => {
     }
   }, [selectedYear]);
 
-  // Загрузка данных из Firestore при смене месяца
+  // Загрузка данных из Firestore при смене месяца (дублирующая логика, убираем)
+  // useEffect(() => {
+  //   const uid = user?.uid;
+  //   if (!uid) return;
+  //   
+  //   async function fetchData() {
+  //     try {
+  //       console.log('=== ЗАГРУЗКА ДАННЫХ ===');
+  //       console.log('Загрузка данных из Firestore:', {
+  //         userId: uid,
+  //         month: currentMonth
+  //       });
+  //       
+  //       const docRef = doc(db, 'users', uid!, 'monthlyData', currentMonth);
+  //       const docSnap = await getDoc(docRef);
+  //       
+  //       if (docSnap.exists()) {
+  //         const data = docSnap.data() as Partial<SyncedMonthData>;
+  //         console.log('Данные загружены из Firebase:', data);
+  //         console.log('Структура monthlyData:', data.monthlyData);
+  //         console.log('Банки в данных:', data.banks);
+  //         console.log('Категории в данных:', data.categories);
+  //         
+  //         // Обновляем банки и категории только если они есть в сохраненных данных
+  //         if (data.banks && data.banks.length > 0) {
+  //           console.log('Обновляем банки на:', data.banks);
+  //           setBanks(data.banks);
+  //         } else {
+  //           console.log('Банки не найдены в данных, оставляем текущие');
+  //         }
+  //         
+  //         if (data.categories && data.categories.length > 0) {
+  //           console.log('Обновляем категории на:', data.categories);
+  //           setCategories(data.categories.sort((a, b) => a.localeCompare(b, 'ru')));
+  //         } else {
+  //           console.log('Категории не найдены в данных, оставляем текущие');
+  //         }
+  //         
+  //         if (data.priorityCategories && data.priorityCategories.length > 0) {
+  //           console.log('Обновляем приоритеты на:', data.priorityCategories);
+  //           setPriorityCategories(data.priorityCategories);
+  //         } else {
+  //           console.log('Приоритеты не найдены в данных, оставляем текущие');
+  //         }
+  //         
+  //         if (data.categorySpending) {
+  //           console.log('Обновляем траты на:', data.categorySpending);
+  //           setCategorySpending(data.categorySpending);
+  //         } else {
+  //           console.log('Траты не найдены в данных, оставляем текущие');
+  //         }
+  //         
+  //         // Обновляем данные месяца
+  //         console.log('Обновляем monthlyData для месяца:', currentMonth, 'с данными:', data.monthlyData);
+  //         setMonthlyData(prev => {
+  //           const newMonthlyData = { ...prev, [currentMonth]: data.monthlyData || prev[currentMonth] || {} };
+  //           console.log('Новый monthlyData после загрузки:', newMonthlyData);
+  //           console.log('Данные для текущего месяца:', newMonthlyData[currentMonth]);
+  //           return newMonthlyData;
+  //         });
+  //       } else {
+  //         console.log('Данные для месяца не найдены в Firebase');
+  //       }
+  //     } catch (error) {
+  //       console.error('Ошибка загрузки данных:', error);
+  //     }
+  //   }
+  //   fetchData();
+  // }, [currentMonth, user?.uid, user]); // Добавили user в зависимости
+
+  // Загрузка данных при первой авторизации пользователя
   useEffect(() => {
     if (!user?.uid) return;
     
-    async function fetchData() {
+    // Загружаем данные для текущего месяца
+    const loadInitialData = async () => {
       try {
-        console.log('Загрузка данных из Firestore:', {
-          userId: user?.uid,
-          month: currentMonth
-        });
-        
         const docRef = doc(db, 'users', user.uid, 'monthlyData', currentMonth);
         const docSnap = await getDoc(docRef);
         
         if (docSnap.exists()) {
           const data = docSnap.data() as Partial<SyncedMonthData>;
-          console.log('Данные загружены:', data);
-          setMonthlyData(prev => ({ ...prev, [currentMonth]: data.monthlyData || prev[currentMonth] || {} }));
-          setBanks(data.banks || banks);
-          setCategories((data.categories || categories).sort((a, b) => a.localeCompare(b, 'ru')));
-          setPriorityCategories(data.priorityCategories || priorityCategories);
-          setCategorySpending(data.categorySpending || categorySpending);
-        } else {
-          console.log('Данные для месяца не найдены');
+          
+          // Обновляем все данные из Firebase
+          if (data.banks && data.banks.length > 0) {
+            setBanks(data.banks);
+          }
+          if (data.categories && data.categories.length > 0) {
+            setCategories(data.categories.sort((a, b) => a.localeCompare(b, 'ru')));
+          }
+          if (data.priorityCategories && data.priorityCategories.length > 0) {
+            setPriorityCategories(data.priorityCategories);
+          }
+          if (data.categorySpending) {
+            setCategorySpending(data.categorySpending);
+          }
+          if (data.monthlyData) {
+            setMonthlyData(prev => ({ ...prev, [currentMonth]: data.monthlyData || {} }));
+          }
         }
+        
+        // Устанавливаем флаг, что данные загружены
+        setDataLoaded(true);
       } catch (error) {
-        console.error('Ошибка загрузки данных:', error);
+        console.error('Ошибка загрузки начальных данных:', error);
+        setDataLoaded(true); // Даже при ошибке устанавливаем флаг
       }
-    }
-    fetchData();
-  }, [currentMonth, user?.uid]);
+    };
+    
+    loadInitialData();
+  }, [user?.uid, currentMonth]); // Добавили currentMonth в зависимости
 
   // Сохранение данных в Firestore при изменении состояния
   useEffect(() => {
@@ -233,20 +357,17 @@ const CashbackOptimizerResponsive = () => {
           priorityCategories,
           categorySpending
         };
-        console.log('Сохранение данных в Firestore:', {
-          userId: user?.uid,
-          month: currentMonth,
-          data
-        });
-        await setDoc(doc(db, 'users', user.uid, 'monthlyData', currentMonth), data);
-        console.log('Данные успешно сохранены');
+        const uid = user?.uid;
+        if (uid) {
+          await setDoc(doc(db, 'users', uid, 'monthlyData', currentMonth), data);
+        }
       } catch (error) {
         console.error('Ошибка сохранения данных:', error);
       }
     }, 1000);
 
     return () => clearTimeout(timeoutId);
-  }, [monthlyData[currentMonth], banks, categories, priorityCategories, categorySpending, currentMonth, user?.uid]);
+  }, [monthlyData, banks, categories, priorityCategories, categorySpending, currentMonth, user?.uid]);
 
   const data: MonthlyData = monthlyData[currentMonth] || {};
 
@@ -266,26 +387,55 @@ const CashbackOptimizerResponsive = () => {
   // Функции управления приоритетами
   const togglePriority = (category: string) => {
     if (checkIsPriority(category)) {
-      setPriorityCategories(prev => prev.filter(p => {
-        const lowerP = p.toLowerCase();
-        const lowerCat = category.toLowerCase();
-        return !(lowerP === lowerCat || lowerP.includes(lowerCat) || lowerCat.includes(lowerP));
-      }));
+      setPriorityCategories(prev => {
+        const newPriorityCategories = prev.filter(p => {
+          const lowerP = p.toLowerCase();
+          const lowerCat = category.toLowerCase();
+          return !(lowerP === lowerCat || lowerP.includes(lowerCat) || lowerCat.includes(lowerP));
+        });
+        
+        // Принудительно сохраняем данные сразу после изменения приоритетов
+        setTimeout(() => forceSaveData({ priorityCategories: newPriorityCategories }), 100);
+        
+        return newPriorityCategories;
+      });
     } else {
-      setPriorityCategories(prev => [...prev, category]);
+      setPriorityCategories(prev => {
+        const newPriorityCategories = [...prev, category];
+        
+        // Принудительно сохраняем данные сразу после изменения приоритетов
+        setTimeout(() => forceSaveData({ priorityCategories: newPriorityCategories }), 100);
+        
+        return newPriorityCategories;
+      });
     }
   };
 
   // Функции управления категориями
   const addCategory = () => {
     if (newCategory.trim() && !categories.includes(newCategory.trim())) {
-      setCategories(prev => [...prev, newCategory.trim()].sort((a, b) => a.localeCompare(b, 'ru')));
+      setCategories(prev => {
+        const newCategories = [...prev, newCategory.trim()].sort((a, b) => a.localeCompare(b, 'ru'));
+        
+        // Принудительно сохраняем данные сразу после добавления категории
+        setTimeout(() => forceSaveData({ categories: newCategories }), 100);
+        
+        return newCategories;
+      });
       setNewCategory('');
     }
   };
 
   const removeCategory = (categoryToRemove: string) => {
-    setCategories(prev => prev.filter(cat => cat !== categoryToRemove));
+    setCategories(prev => {
+      const newCategories = prev.filter(cat => cat !== categoryToRemove);
+      
+      // Принудительно сохраняем данные сразу после удаления категории
+      setTimeout(() => forceSaveData({ categories: newCategories }), 100);
+      
+      return newCategories;
+    });
+    
     setCategorySpending(prev => {
       const updated = { ...prev };
       delete updated[categoryToRemove];
@@ -295,35 +445,65 @@ const CashbackOptimizerResponsive = () => {
 
   // Функции управления банками
   const updateBank = (index: number, field: string, value: any) => {
-    setBanks(prev => prev.map((bank, i) => 
-      i === index ? { ...bank, [field]: value } : bank
-    ));
+    setBanks(prev => {
+      const newBanks = prev.map((bank, i) => 
+        i === index ? { ...bank, [field]: value } : bank
+      );
+      
+      // Принудительно сохраняем данные сразу после изменения
+      setTimeout(() => forceSaveData({ banks: newBanks }), 100);
+      
+      return newBanks;
+    });
   };
 
   const addBank = () => {
-    setBanks(prev => [...prev, { name: 'Новый банк', maxCategories: 3, cashbackLimit: 3000 }]);
+    setBanks(prev => {
+      const newBanks = [...prev, { name: 'Новый банк', maxCategories: 3, cashbackLimit: 3000 }];
+      
+      // Принудительно сохраняем данные сразу после добавления банка
+      setTimeout(() => forceSaveData({ banks: newBanks }), 100);
+      
+      return newBanks;
+    });
   };
 
   const removeBank = (indexToRemove: number) => {
-    setBanks(prev => prev.filter((_, i) => i !== indexToRemove));
+    setBanks(prev => {
+      const newBanks = prev.filter((_, i) => i !== indexToRemove);
+      
+      // Принудительно сохраняем данные сразу после удаления банка
+      setTimeout(() => forceSaveData({ banks: newBanks }), 100);
+      
+      return newBanks;
+    });
   };
 
   const updateData = (category: string, bankName: string, value: string) => {
-    setMonthlyData(prev => ({
-      ...prev,
-      [currentMonth]: {
-        ...prev[currentMonth],
-        [category]: {
-          ...prev[currentMonth]?.[category],
-          [bankName]: value
+    setMonthlyData(prev => {
+      const newData = {
+        ...prev,
+        [currentMonth]: {
+          ...prev[currentMonth],
+          [category]: {
+            ...prev[currentMonth]?.[category],
+            [bankName]: value
+          }
         }
-      }
-    }));
+      };
+      
+      // Принудительно сохраняем данные сразу после изменения
+      setTimeout(() => {
+        forceSaveData({ monthlyData: newData[currentMonth] || {} });
+      }, 100);
+      
+      return newData;
+    });
   };
 
   const calculateCashback = (rate: number, spending: number, limit: number) => {
-    const cashback = Number(spending) * Number(rate) / 100;
-    return Math.min(cashback, Number(limit));
+    const cashback = spending * rate / 100;
+    return Math.min(cashback, limit);
   };
 
   const optimizeSelection = () => {
@@ -344,13 +524,14 @@ const CashbackOptimizerResponsive = () => {
           const bankIndex = banks.findIndex(b => b.name === bankName);
           const bank = banks[bankIndex];
           const spending = categorySpending[category] || 0;
-          const realCashback = calculateCashback(parseFloat(rate), spending, bank.cashbackLimit);
+          const rateNumber = parseFloat(rate);
+          const realCashback = calculateCashback(rateNumber, spending, bank.cashbackLimit);
           
           allOffers.push({
             bankIndex,
             bankName,
             category,
-            rate: parseFloat(rate),
+            rate: rateNumber,
             isPriority: checkIsPriority(category),
             spending,
             realCashback,
@@ -362,7 +543,7 @@ const CashbackOptimizerResponsive = () => {
 
     allOffers.sort((a, b) => {
       if (a.isPriority !== b.isPriority) {
-        return b.isPriority - a.isPriority;
+        return (b.isPriority ? 1 : 0) - (a.isPriority ? 1 : 0);
       }
       return b.realCashback - a.realCashback;
     });
@@ -497,6 +678,88 @@ const CashbackOptimizerResponsive = () => {
     }).format(amount);
   };
 
+
+
+  // Функция для очистки данных в Firebase
+  const clearFirebaseData = async () => {
+    const uid = user?.uid;
+    if (!uid) {
+      console.log('Пользователь не авторизован');
+      return;
+    }
+
+    try {
+      console.log('Очистка данных в Firebase для пользователя:', uid);
+      
+      // Очищаем данные для текущего месяца
+      await setDoc(doc(db, 'users', uid, 'monthlyData', currentMonth), {
+        monthlyData: {},
+        banks: [
+          { name: 'ВТБ', maxCategories: 3, cashbackLimit: 3000 },
+          { name: 'Альфа', maxCategories: 3, cashbackLimit: 5000 },
+          { name: 'Сбер', maxCategories: 5, cashbackLimit: 5000 },
+          { name: 'Тинькофф', maxCategories: 4, cashbackLimit: 3000 }
+        ],
+        categories: [
+          'Автоуслуги', 'АЗС', 'Аксессуары', 'Аптека', 'Все покупки', 'Деливери',
+          'Детские товары', 'Дом и ремонт', 'Искусство', 'Кафе и рестораны',
+          'Книги и канцтовары', 'Красота', 'Мед услуги', 'Мегамаркет', 'Образование',
+          'Одежда и обувь', 'Перекресток', 'Платные дороги', 'Развлечения',
+          'Сервис Трэвел', 'Спорттовары', 'Супермаркеты', 'Такси', 'Театры и кино',
+          'Транспорт', 'Цветы', 'Цифровой контент', 'Хобби', 'Электроника', 'Яндекс Еда'
+        ],
+        priorityCategories: ['Супермаркеты', 'Кафе и рестораны', 'Все покупки'],
+        categorySpending: {
+          'Автоуслуги': 5000, 'АЗС': 8000, 'Все покупки': 30000, 'Детские товары': 10000,
+          'Кафе и рестораны': 15000, 'Супермаркеты': 25000, 'Транспорт': 8000, 'Такси': 5000,
+          'Образование': 3000, 'Красота': 4000, 'Спорттовары': 3000, 'Театры и кино': 2000
+        }
+      });
+      
+      console.log('Данные успешно очищены и сброшены к начальным значениям');
+      
+      // Перезагружаем страницу для применения изменений
+      window.location.reload();
+    } catch (error) {
+      console.error('Ошибка при очистке данных:', error);
+    }
+  };
+
+  // Функция для полной очистки всех данных пользователя
+  const clearAllUserData = async () => {
+    const uid = user?.uid;
+    if (!uid) {
+      console.log('Пользователь не авторизован');
+      return;
+    }
+
+    if (!confirm('Вы уверены, что хотите удалить ВСЕ данные? Это действие нельзя отменить!')) {
+      return;
+    }
+
+    try {
+      console.log('Полная очистка всех данных пользователя:', uid);
+      
+      // Импортируем необходимые функции
+      const { collection, getDocs, deleteDoc } = await import('firebase/firestore');
+      
+      // Получаем все документы пользователя
+      const userDataRef = collection(db, 'users', uid, 'monthlyData');
+      const querySnapshot = await getDocs(userDataRef);
+      
+      // Удаляем все документы
+      const deletePromises = querySnapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      
+      console.log('Все данные пользователя успешно удалены');
+      
+      // Перезагружаем страницу
+      window.location.reload();
+    } catch (error) {
+      console.error('Ошибка при полной очистке данных:', error);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Адаптивный заголовок */}
@@ -562,6 +825,7 @@ const CashbackOptimizerResponsive = () => {
                     <Download size={14} />
                     Пример
                   </button>
+
                 </div>
               </div>
             )}
@@ -608,13 +872,14 @@ const CashbackOptimizerResponsive = () => {
                   <Settings size={14} />
                   Настройки
                 </button>
-                <button
-                  onClick={loadSampleData}
-                  className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition-colors flex items-center gap-1"
-                >
-                  <Download size={14} />
-                  Пример
-                </button>
+                                  <button
+                    onClick={loadSampleData}
+                    className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition-colors flex items-center gap-1"
+                  >
+                    <Download size={14} />
+                    Пример
+                  </button>
+
               </div>
             </div>
           </div>
@@ -728,15 +993,48 @@ const CashbackOptimizerResponsive = () => {
                     <input
                       type="number"
                       value={amount}
-                      onChange={(e) => setCategorySpending(prev => ({
-                        ...prev,
-                        [category]: parseInt(e.target.value) || 0
-                      }))}
+                      onChange={(e) => {
+                        const newValue = parseInt(e.target.value) || 0;
+                        setCategorySpending(prev => {
+                          const newCategorySpending = {
+                            ...prev,
+                            [category]: newValue
+                          };
+                          
+                          // Принудительно сохраняем данные сразу после изменения трат
+                          setTimeout(() => forceSaveData({ categorySpending: newCategorySpending }), 100);
+                          
+                          return newCategorySpending;
+                        });
+                      }}
                       className="w-full p-2 border border-gray-300 rounded text-sm"
                     />
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* Управление данными */}
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-4">🗄️ Управление данными</h3>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={clearFirebaseData}
+                  className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors flex items-center justify-center gap-2"
+                >
+                  🔄 Сбросить текущий месяц
+                </button>
+                <button
+                  onClick={clearAllUserData}
+                  className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors flex items-center justify-center gap-2"
+                >
+                  🗑️ Удалить все данные
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 mt-2">
+                ⚠️ "Сбросить текущий месяц" - очищает данные только для текущего месяца.<br/>
+                ⚠️ "Удалить все данные" - удаляет ВСЕ данные пользователя безвозвратно!
+              </p>
             </div>
           </div>
         )}
