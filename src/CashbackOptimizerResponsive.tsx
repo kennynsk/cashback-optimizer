@@ -107,6 +107,8 @@ const CashbackOptimizerResponsive = () => {
     const currentMonthNum = currentDate.getMonth() + 1;
     return `${currentYear}-${currentMonthNum.toString().padStart(2, '0')}`;
   });
+  // Флаг для отслеживания ручного выбора месяца
+  const [isManualMonthSelection, setIsManualMonthSelection] = useState(false);
   const [monthlyData, setMonthlyData] = useState<AllMonthlyData>(() => {
     const initialMonthlyData: AllMonthlyData = {};
     months.forEach(month => {
@@ -136,21 +138,32 @@ const CashbackOptimizerResponsive = () => {
   // Функция для принудительного сохранения данных
   const forceSaveData = useCallback(async (updatedData?: Partial<SyncedMonthData>) => {
     const uid = user?.uid;
-    if (!uid) return;
+    if (!uid) {
+      console.log('❌ Пользователь не авторизован, пропускаем сохранение');
+      return;
+    }
     
     try {
+      console.log('=== ПРИНУДИТЕЛЬНОЕ СОХРАНЕНИЕ ===');
+      console.log('Месяц:', currentMonth);
+      console.log('Пользователь:', uid);
+      console.log('Обновляемые данные:', updatedData);
+      
       const dataToSave: SyncedMonthData = {
         monthlyData: updatedData?.monthlyData || monthlyData[currentMonth] || {},
         banks: updatedData?.banks || banks,
         categories: updatedData?.categories || categories,
         priorityCategories: updatedData?.priorityCategories || priorityCategories,
         categorySpending: updatedData?.categorySpending || categorySpending,
-        optimizationStrategy: updatedData?.optimizationStrategy || optimizationStrategy // Сохраняем стратегию
+        optimizationStrategy: updatedData?.optimizationStrategy || optimizationStrategy
       };
       
+      console.log('Данные для сохранения:', dataToSave);
+      
       await setDoc(doc(db, 'users', uid, 'monthlyData', currentMonth), dataToSave);
+      console.log('✅ Принудительное сохранение завершено для месяца:', currentMonth);
     } catch (error) {
-      console.error('Ошибка принудительного сохранения данных:', error);
+      console.error('❌ Ошибка принудительного сохранения данных для месяца:', currentMonth, error);
     }
   }, [user?.uid, currentMonth, monthlyData, banks, categories, priorityCategories, categorySpending, optimizationStrategy]);
 
@@ -224,18 +237,33 @@ const CashbackOptimizerResponsive = () => {
     return () => clearTimeout(timeoutId);
   }, [categories, banks, months, user?.uid, dataLoaded]);
 
-  // Обновляем текущий месяц при изменении года
+  // Обновляем текущий месяц при изменении года (только если не было ручного выбора)
   useEffect(() => {
+    // Если пользователь выбрал месяц вручную, не перезаписываем его выбор
+    if (isManualMonthSelection) {
+      console.log('Пропускаем автоматическое обновление месяца - пользователь выбрал вручную');
+      return;
+    }
+    
     const currentDate = new Date();
     const currentYear = currentDate.getFullYear();
     const currentMonthNum = currentDate.getMonth() + 1;
     
     if (selectedYear === currentYear) {
-      setCurrentMonth(`${currentYear}-${currentMonthNum.toString().padStart(2, '0')}`);
+      const newCurrentMonth = `${currentYear}-${currentMonthNum.toString().padStart(2, '0')}`;
+      // Обновляем только если месяц действительно изменился
+      if (currentMonth !== newCurrentMonth) {
+        console.log('Автоматическое обновление текущего месяца:', currentMonth, '->', newCurrentMonth);
+        setCurrentMonth(newCurrentMonth);
+      }
     } else {
-      setCurrentMonth(`${selectedYear}-01`);
+      const newCurrentMonth = `${selectedYear}-01`;
+      if (currentMonth !== newCurrentMonth) {
+        console.log('Обновление месяца при смене года:', currentMonth, '->', newCurrentMonth);
+        setCurrentMonth(newCurrentMonth);
+      }
     }
-  }, [selectedYear]);
+  }, [selectedYear, currentMonth, isManualMonthSelection]);
 
   // Загрузка данных из Firestore при смене месяца (дублирующая логика, убираем)
   // useEffect(() => {
@@ -307,80 +335,104 @@ const CashbackOptimizerResponsive = () => {
   //   fetchData();
   // }, [currentMonth, user?.uid, user]); // Добавили user в зависимости
 
-  // Загрузка данных при первой авторизации пользователя
+  // Загрузка данных при первой авторизации пользователя и при смене месяца
   useEffect(() => {
     if (!user?.uid) return;
     
     // Загружаем данные для текущего месяца
     const loadInitialData = async () => {
       try {
+        console.log('=== ЗАГРУЗКА ДАННЫХ ===');
+        console.log('Загрузка данных для месяца:', currentMonth);
+        console.log('Пользователь:', user.uid);
+        
         const docRef = doc(db, 'users', user.uid, 'monthlyData', currentMonth);
         const docSnap = await getDoc(docRef);
         
         if (docSnap.exists()) {
           const data = docSnap.data() as Partial<SyncedMonthData>;
+          console.log('✅ Данные найдены для месяца:', currentMonth);
+          console.log('Структура данных:', data);
           
           // Обновляем все данные из Firebase
           if (data.banks && data.banks.length > 0) {
+            console.log('Обновляем банки:', data.banks);
             setBanks(data.banks);
           }
           if (data.categories && data.categories.length > 0) {
+            console.log('Обновляем категории:', data.categories);
             setCategories(data.categories.sort((a, b) => a.localeCompare(b, 'ru')));
           }
           if (data.priorityCategories && data.priorityCategories.length > 0) {
+            console.log('Обновляем приоритеты:', data.priorityCategories);
             setPriorityCategories(data.priorityCategories);
           }
           if (data.categorySpending) {
+            console.log('Обновляем траты:', data.categorySpending);
             setCategorySpending(data.categorySpending);
-          } else {
-            console.log('Траты не найдены в данных, оставляем текущие');
           }
           
           if (data.optimizationStrategy) {
+            console.log('Обновляем стратегию:', data.optimizationStrategy);
             setOptimizationStrategy(data.optimizationStrategy);
           }
           
           if (data.monthlyData) {
+            console.log('Обновляем данные месяца:', data.monthlyData);
             setMonthlyData(prev => ({ ...prev, [currentMonth]: data.monthlyData || {} }));
           }
+        } else {
+          console.log('❌ Данные не найдены для месяца:', currentMonth);
+          console.log('Создаем пустую структуру для нового месяца');
+          // Если данных нет, создаем пустую структуру для нового месяца
+          setMonthlyData(prev => ({ ...prev, [currentMonth]: {} }));
         }
         
         // Устанавливаем флаг, что данные загружены
         setDataLoaded(true);
+        console.log('=== ЗАГРУЗКА ЗАВЕРШЕНА ===');
       } catch (error) {
-        console.error('Ошибка загрузки начальных данных:', error);
+        console.error('❌ Ошибка загрузки данных для месяца:', currentMonth, error);
         setDataLoaded(true); // Даже при ошибке устанавливаем флаг
       }
     };
     
     loadInitialData();
-  }, [user?.uid, currentMonth]); // Добавили currentMonth в зависимости
+  }, [user?.uid, currentMonth]); // Зависимость от currentMonth обеспечивает загрузку при смене месяца
 
   // Сохранение данных в Firestore при изменении состояния
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid || !dataLoaded) return; // Не сохраняем до загрузки данных
     
     const timeoutId = setTimeout(async () => {
       try {
+        console.log('=== СОХРАНЕНИЕ ДАННЫХ ===');
+        console.log('Сохранение данных для месяца:', currentMonth);
+        console.log('Пользователь:', user.uid);
+        
         const data: SyncedMonthData = {
           monthlyData: monthlyData[currentMonth] || {},
           banks,
           categories,
           priorityCategories,
           categorySpending,
-          optimizationStrategy // Добавляем в сохраняемые данные
+          optimizationStrategy
         };
+        
+        console.log('Данные для сохранения:', data);
+        
         const uid = user?.uid;
         if (uid) {
           await setDoc(doc(db, 'users', uid, 'monthlyData', currentMonth), data);
+          console.log('✅ Данные успешно сохранены для месяца:', currentMonth);
         }
       } catch (error) {
-        console.error('Ошибка сохранения данных:', error);
+        console.error('❌ Ошибка сохранения данных для месяца:', currentMonth, error);
       }
     }, 1000);
 
     return () => clearTimeout(timeoutId);
-  }, [monthlyData, banks, categories, priorityCategories, categorySpending, currentMonth, user?.uid, optimizationStrategy]);
+  }, [monthlyData, banks, categories, priorityCategories, categorySpending, currentMonth, user?.uid, optimizationStrategy, dataLoaded]);
 
   const data: MonthlyData = monthlyData[currentMonth] || {};
 
@@ -493,6 +545,8 @@ const CashbackOptimizerResponsive = () => {
   };
 
   const updateData = (category: string, bankName: string, value: string) => {
+    console.log(`Обновление данных: ${category} -> ${bankName} = ${value} (месяц: ${currentMonth})`);
+    
     setMonthlyData(prev => {
       const newData = {
         ...prev,
@@ -507,6 +561,7 @@ const CashbackOptimizerResponsive = () => {
       
       // Принудительно сохраняем данные сразу после изменения
       setTimeout(() => {
+        console.log(`Принудительное сохранение данных для месяца ${currentMonth}`);
         forceSaveData({ monthlyData: newData[currentMonth] || {} });
       }, 100);
       
@@ -747,6 +802,55 @@ const CashbackOptimizerResponsive = () => {
     }
   };
 
+  // Функция для тестирования сохранения и загрузки данных
+  const testDataPersistence = async () => {
+    const uid = user?.uid;
+    if (!uid) {
+      console.log('❌ Пользователь не авторизован');
+      return;
+    }
+
+    try {
+      console.log('=== ТЕСТИРОВАНИЕ СОХРАНЕНИЯ ДАННЫХ ===');
+      
+      // Сохраняем тестовые данные
+      const testData: SyncedMonthData = {
+        monthlyData: {
+          'Тестовая категория': {
+            'ВТБ': '5.0',
+            'Альфа': '3.0'
+          }
+        },
+        banks,
+        categories,
+        priorityCategories,
+        categorySpending,
+        optimizationStrategy
+      };
+      
+      console.log('Сохраняем тестовые данные для месяца:', currentMonth);
+      await setDoc(doc(db, 'users', uid, 'monthlyData', currentMonth), testData);
+      console.log('✅ Тестовые данные сохранены');
+      
+      // Загружаем данные обратно
+      console.log('Загружаем данные обратно...');
+      const docRef = doc(db, 'users', uid, 'monthlyData', currentMonth);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        const loadedData = docSnap.data() as SyncedMonthData;
+        console.log('✅ Данные успешно загружены:', loadedData);
+        alert('Тест успешен! Данные сохраняются и загружаются корректно.');
+      } else {
+        console.log('❌ Данные не найдены после сохранения');
+        alert('Ошибка! Данные не найдены после сохранения.');
+      }
+    } catch (error) {
+      console.error('❌ Ошибка тестирования:', error);
+      alert('Ошибка при тестировании: ' + error);
+    }
+  };
+
   // Функция для полной очистки всех данных пользователя
   const clearAllUserData = async () => {
     const uid = user?.uid;
@@ -809,7 +913,11 @@ const CashbackOptimizerResponsive = () => {
                   <Calendar className="text-gray-600" size={16} />
                   <select 
                     value={selectedYear}
-                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                    onChange={(e) => {
+                      console.log('Изменение года (мобильная версия):', e.target.value);
+                      setIsManualMonthSelection(false); // Сбрасываем флаг при смене года
+                      setSelectedYear(parseInt(e.target.value));
+                    }}
                     className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
                   >
                     {Array.from({length: 10}, (_, i) => new Date().getFullYear() - 2 + i).map(year => (
@@ -821,7 +929,11 @@ const CashbackOptimizerResponsive = () => {
                 <div className="flex items-center gap-2">
                   <select 
                     value={currentMonth}
-                    onChange={(e) => setCurrentMonth(e.target.value)}
+                    onChange={(e) => {
+                      console.log('Ручной выбор месяца (мобильная версия):', e.target.value);
+                      setIsManualMonthSelection(true);
+                      setCurrentMonth(e.target.value);
+                    }}
                     className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
                   >
                     {months.map(month => (
@@ -847,7 +959,18 @@ const CashbackOptimizerResponsive = () => {
                     <Download size={14} />
                     Пример
                   </button>
-
+                  {isManualMonthSelection && (
+                    <button
+                      onClick={() => {
+                        console.log('Сброс ручного выбора месяца (мобильная версия)');
+                        setIsManualMonthSelection(false);
+                      }}
+                      className="flex-1 px-3 py-2 bg-yellow-500 text-white rounded text-sm flex items-center justify-center gap-1"
+                      title="Вернуться к автоматическому выбору текущего месяца"
+                    >
+                      🔄 Авто
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -865,7 +988,11 @@ const CashbackOptimizerResponsive = () => {
                 <Calendar className="text-gray-600" size={16} />
                 <select 
                   value={selectedYear}
-                  onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                  onChange={(e) => {
+                    console.log('Изменение года:', e.target.value);
+                    setIsManualMonthSelection(false); // Сбрасываем флаг при смене года
+                    setSelectedYear(parseInt(e.target.value));
+                  }}
                   className="px-2 py-1 border border-gray-300 rounded text-sm"
                 >
                   {Array.from({length: 10}, (_, i) => new Date().getFullYear() - 2 + i).map(year => (
@@ -876,7 +1003,11 @@ const CashbackOptimizerResponsive = () => {
               
               <select 
                 value={currentMonth}
-                onChange={(e) => setCurrentMonth(e.target.value)}
+                onChange={(e) => {
+                  console.log('Ручной выбор месяца (десктопная версия):', e.target.value);
+                  setIsManualMonthSelection(true);
+                  setCurrentMonth(e.target.value);
+                }}
                 className="px-2 py-1 border border-gray-300 rounded text-sm"
               >
                 {months.map(month => (
@@ -894,14 +1025,25 @@ const CashbackOptimizerResponsive = () => {
                   <Settings size={14} />
                   Настройки
                 </button>
-                                  <button
-                    onClick={loadSampleData}
-                    className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition-colors flex items-center gap-1"
+                <button
+                  onClick={loadSampleData}
+                  className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition-colors flex items-center gap-1"
+                >
+                  <Download size={14} />
+                  Пример
+                </button>
+                {isManualMonthSelection && (
+                  <button
+                    onClick={() => {
+                      console.log('Сброс ручного выбора месяца');
+                      setIsManualMonthSelection(false);
+                    }}
+                    className="px-3 py-1 bg-yellow-500 text-white rounded text-sm hover:bg-yellow-600 transition-colors flex items-center gap-1"
+                    title="Вернуться к автоматическому выбору текущего месяца"
                   >
-                    <Download size={14} />
-                    Пример
+                    🔄 Авто
                   </button>
-
+                )}
               </div>
             </div>
           </div>
@@ -1088,6 +1230,12 @@ const CashbackOptimizerResponsive = () => {
               <h3 className="font-semibold text-gray-800 mb-4">🗄️ Управление данными</h3>
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
+                  onClick={testDataPersistence}
+                  className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors flex items-center justify-center gap-2"
+                >
+                  🧪 Тест сохранения
+                </button>
+                <button
                   onClick={clearFirebaseData}
                   className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors flex items-center justify-center gap-2"
                 >
@@ -1101,6 +1249,7 @@ const CashbackOptimizerResponsive = () => {
                 </button>
               </div>
               <p className="text-sm text-gray-600 mt-2">
+                🧪 "Тест сохранения" - проверяет, что данные сохраняются и загружаются корректно.<br/>
                 ⚠️ "Сбросить текущий месяц" - очищает данные только для текущего месяца.<br/>
                 ⚠️ "Удалить все данные" - удаляет ВСЕ данные пользователя безвозвратно!
               </p>
@@ -1339,10 +1488,21 @@ const CashbackOptimizerResponsive = () => {
           </div>
         </div>
 
-        {/* Подсказки */}
-        <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-          <div className="text-sm text-yellow-800">
-            <strong>💡 Быстрые действия:</strong> ⭐ = приоритет • 🟢 = рекомендации • 🔵 = данные
+        {/* Подсказки и статус */}
+        <div className="mt-4 space-y-3">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <div className="text-sm text-yellow-800">
+              <strong>💡 Быстрые действия:</strong> ⭐ = приоритет • 🟢 = рекомендации • 🔵 = данные
+            </div>
+          </div>
+          
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div className="text-sm text-blue-800">
+              <strong>📊 Статус:</strong> Текущий месяц: <span className="font-mono">{currentMonth}</span> • 
+              Данные загружены: <span className={dataLoaded ? 'text-green-600' : 'text-red-600'}>{dataLoaded ? '✅' : '❌'}</span> • 
+              Пользователь: <span className="font-mono">{user?.uid ? '✅' : '❌'}</span> • 
+              Ручной выбор: <span className={isManualMonthSelection ? 'text-yellow-600' : 'text-gray-600'}>{isManualMonthSelection ? '✅' : '❌'}</span>
+            </div>
           </div>
         </div>
       </div>
