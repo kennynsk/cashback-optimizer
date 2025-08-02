@@ -150,9 +150,145 @@ const CashbackOptimizerResponsive = () => {
     }
     return deviceId;
   };
+
+  // Функция для проверки конфликтов
+  const checkForConflicts = async () => {
+    const uid = user?.uid;
+    if (!uid) return { hasConflict: false };
+
+    try {
+      const docRef = doc(db, 'users', uid, 'monthlyData', currentMonth);
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        const data = docSnap.data() as Partial<SyncedMonthData>;
+        const localLastModified = localStorage.getItem(`lastModified_${currentMonth}`);
+
+        if (localLastModified && data.lastModified) {
+          const localTime = parseInt(localLastModified);
+          const serverTime = data.lastModified;
+
+          if (Math.abs(localTime - serverTime) > 60000) { // Разница больше 1 минуты
+            console.log('⚠️ Обнаружен потенциальный конфликт данных');
+            return {
+              hasConflict: true,
+              localTime: new Date(localTime).toLocaleString(),
+              serverTime: new Date(serverTime).toLocaleString(),
+              deviceId: data.deviceId
+            };
+          }
+        }
+      }
+
+      return { hasConflict: false };
+    } catch (error) {
+      console.error('Ошибка проверки конфликтов:', error);
+      return { hasConflict: false };
+    }
+  };
+
+  // Функция для умного сохранения данных с timestamp
+  const saveDataWithTimestamp = async () => {
+    const uid = user?.uid;
+    if (!uid) return;
+
+    setIsSyncing(true);
+    setSyncStatus('syncing');
+
+    try {
+      const currentTime = Date.now();
+      const deviceId = getDeviceId();
+
+      console.log('=== УМНОЕ СОХРАНЕНИЕ ДАННЫХ ===');
+      console.log('Сохранение данных для месяца:', currentMonth);
+      console.log('Пользователь:', uid);
+      console.log('Время:', new Date(currentTime).toISOString());
+      console.log('Устройство:', deviceId);
+
+      const data: SyncedMonthData = {
+        monthlyData: monthlyData[currentMonth] || {},
+        banks,
+        categories,
+        priorityCategories,
+        categorySpending,
+        optimizationStrategy,
+        lastModified: currentTime,
+        deviceId
+      };
+
+      console.log('Данные для сохранения:', data);
+
+      await setDoc(doc(db, 'users', uid, 'monthlyData', currentMonth), data);
+      console.log('✅ Данные успешно сохранены для месяца:', currentMonth);
+
+      // Сохраняем timestamp локально
+      localStorage.setItem(`lastModified_${currentMonth}`, currentTime.toString());
+      setLastSyncTime(currentTime);
+      setSyncStatus('success');
+
+      // Сбрасываем статус через 3 секунды
+      setTimeout(() => setSyncStatus('idle'), 3000);
+    } catch (error) {
+      console.error('❌ Ошибка сохранения данных для месяца:', currentMonth, error);
+      setSyncStatus('error');
+
+      // Сбрасываем статус через 5 секунд
+      setTimeout(() => setSyncStatus('idle'), 5000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Функция для принудительной синхронизации
+  const forceSync = async () => {
+    const uid = user?.uid;
+    if (!uid) return;
+
+    try {
+      console.log('=== ПРИНУДИТЕЛЬНАЯ СИНХРОНИЗАЦИЯ ===');
+      setSyncStatus('syncing');
+
+      // Сначала загружаем последние данные с сервера
+      const docRef = doc(db, 'users', uid, 'monthlyData', currentMonth);
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        const data = docSnap.data() as Partial<SyncedMonthData>;
+        console.log('Загружаем последние данные с сервера:', data);
+
+        // Обновляем локальные данные
+        if (data.banks && data.banks.length > 0) setBanks(data.banks);
+        if (data.categories && data.categories.length > 0) {
+          setCategories(data.categories.sort((a, b) => a.localeCompare(b, 'ru')));
+        }
+        if (data.priorityCategories && data.priorityCategories.length > 0) {
+          setPriorityCategories(data.priorityCategories);
+        }
+        if (data.categorySpending) setCategorySpending(data.categorySpending);
+        if (data.optimizationStrategy) setOptimizationStrategy(data.optimizationStrategy);
+        if (data.monthlyData) {
+          setMonthlyData(prev => ({ ...prev, [currentMonth]: data.monthlyData || {} }));
+        }
+
+        // Обновляем timestamp
+        if (data.lastModified) {
+          localStorage.setItem(`lastModified_${currentMonth}`, data.lastModified.toString());
+        }
+      }
+
+      // Затем сохраняем текущие данные
+      await saveDataWithTimestamp();
+
+      alert('✅ Синхронизация завершена!');
+    } catch (error) {
+      console.error('❌ Ошибка принудительной синхронизации:', error);
+      alert('❌ Ошибка синхронизации: ' + error);
+      setSyncStatus('error');
+    }
+  };
   const [optimizationStrategy, setOptimizationStrategy] = useState<'rate' | 'cashback'>('rate');
 
-  // Функция для принудительного сохранения данных
+  // Функция для принудительного сохранения данных (обновлена для умной синхронизации)
   const forceSaveData = useCallback(async (updatedData?: Partial<SyncedMonthData>) => {
     const uid = user?.uid;
     if (!uid) {
@@ -166,18 +302,8 @@ const CashbackOptimizerResponsive = () => {
       console.log('Пользователь:', uid);
       console.log('Обновляемые данные:', updatedData);
       
-      const dataToSave: SyncedMonthData = {
-        monthlyData: updatedData?.monthlyData || monthlyData[currentMonth] || {},
-        banks: updatedData?.banks || banks,
-        categories: updatedData?.categories || categories,
-        priorityCategories: updatedData?.priorityCategories || priorityCategories,
-        categorySpending: updatedData?.categorySpending || categorySpending,
-        optimizationStrategy: updatedData?.optimizationStrategy || optimizationStrategy
-      };
-      
-      console.log('Данные для сохранения:', dataToSave);
-      
-      await setDoc(doc(db, 'users', uid, 'monthlyData', currentMonth), dataToSave);
+      // Используем умное сохранение с timestamp
+      await saveDataWithTimestamp();
       console.log('✅ Принудительное сохранение завершено для месяца:', currentMonth);
     } catch (error) {
       console.error('❌ Ошибка принудительного сохранения данных для месяца:', currentMonth, error);
@@ -356,7 +482,7 @@ const CashbackOptimizerResponsive = () => {
   useEffect(() => {
     if (!user?.uid) return;
     
-    // Загружаем данные для текущего месяца
+    // Загружаем данные для текущего месяца (обновлено для умной синхронизации)
     const loadInitialData = async () => {
       try {
         console.log('=== ЗАГРУЗКА ДАННЫХ ===');
@@ -370,6 +496,19 @@ const CashbackOptimizerResponsive = () => {
           const data = docSnap.data() as Partial<SyncedMonthData>;
           console.log('✅ Данные найдены для месяца:', currentMonth);
           console.log('Структура данных:', data);
+          
+          // Проверяем, не являются ли данные устаревшими
+          const localLastModified = localStorage.getItem(`lastModified_${currentMonth}`);
+          if (localLastModified && data.lastModified) {
+            const localTime = parseInt(localLastModified);
+            const serverTime = data.lastModified;
+            
+            if (localTime > serverTime) {
+              console.log('⚠️ Локальные данные новее серверных, пропускаем загрузку');
+              setSyncStatus('conflict');
+              return;
+            }
+          }
           
           // Обновляем все данные из Firebase
           if (data.banks && data.banks.length > 0) {
@@ -398,54 +537,41 @@ const CashbackOptimizerResponsive = () => {
             console.log('Обновляем данные месяца:', data.monthlyData);
             setMonthlyData(prev => ({ ...prev, [currentMonth]: data.monthlyData || {} }));
           }
+          
+          // Сохраняем timestamp последней загрузки
+          localStorage.setItem(`lastModified_${currentMonth}`, data.lastModified?.toString() || '0');
+          setLastSyncTime(data.lastModified || null);
         } else {
           console.log('❌ Данные не найдены для месяца:', currentMonth);
           console.log('Создаем пустую структуру для нового месяца');
-          // Если данных нет, создаем пустую структуру для нового месяца
           setMonthlyData(prev => ({ ...prev, [currentMonth]: {} }));
         }
         
-        // Устанавливаем флаг, что данные загружены
         setDataLoaded(true);
         console.log('=== ЗАГРУЗКА ЗАВЕРШЕНА ===');
       } catch (error) {
         console.error('❌ Ошибка загрузки данных для месяца:', currentMonth, error);
-        setDataLoaded(true); // Даже при ошибке устанавливаем флаг
+        setDataLoaded(true);
       }
     };
     
     loadInitialData();
   }, [user?.uid, currentMonth]); // Зависимость от currentMonth обеспечивает загрузку при смене месяца
 
-  // Сохранение данных в Firestore при изменении состояния
+  // Умное сохранение данных в Firestore при изменении состояния
   useEffect(() => {
-    if (!user?.uid || !dataLoaded) return; // Не сохраняем до загрузки данных
+    if (!user?.uid || !dataLoaded) return;
     
-    const timeoutId = setTimeout(async () => {
-      try {
-        console.log('=== СОХРАНЕНИЕ ДАННЫХ ===');
-        console.log('Сохранение данных для месяца:', currentMonth);
-        console.log('Пользователь:', user.uid);
-        
-        const data: SyncedMonthData = {
-          monthlyData: monthlyData[currentMonth] || {},
-          banks,
-          categories,
-          priorityCategories,
-          categorySpending,
-          optimizationStrategy
-        };
-        
-        console.log('Данные для сохранения:', data);
-        
-        const uid = user?.uid;
-        if (uid) {
-          await setDoc(doc(db, 'users', uid, 'monthlyData', currentMonth), data);
-          console.log('✅ Данные успешно сохранены для месяца:', currentMonth);
-        }
-      } catch (error) {
-        console.error('❌ Ошибка сохранения данных для месяца:', currentMonth, error);
+    // Проверяем конфликты перед сохранением
+    checkForConflicts().then(conflict => {
+      if (conflict.hasConflict) {
+        console.log('⚠️ Обнаружен конфликт:', conflict);
+        setSyncStatus('conflict');
       }
+    });
+    
+    const timeoutId = setTimeout(() => {
+      saveDataWithTimestamp();
     }, 1000);
 
     return () => clearTimeout(timeoutId);
@@ -807,7 +933,9 @@ const CashbackOptimizerResponsive = () => {
           'Кафе и рестораны': 15000, 'Супермаркеты': 25000, 'Транспорт': 8000, 'Такси': 5000,
           'Образование': 3000, 'Красота': 4000, 'Спорттовары': 3000, 'Театры и кино': 2000
         },
-        optimizationStrategy: 'rate' // Очищаем стратегию
+        optimizationStrategy: 'rate',
+        lastModified: Date.now(),
+        deviceId: getDeviceId()
       });
       
       console.log('Данные успешно очищены и сброшены к начальным значениям');
@@ -842,7 +970,9 @@ const CashbackOptimizerResponsive = () => {
         categories,
         priorityCategories,
         categorySpending,
-        optimizationStrategy
+        optimizationStrategy,
+        lastModified: Date.now(),
+        deviceId: getDeviceId()
       };
       
       console.log('Сохраняем тестовые данные для месяца:', currentMonth);
@@ -1321,6 +1451,12 @@ const CashbackOptimizerResponsive = () => {
                     >
                       Очистить
                     </button>
+                    <button
+                      onClick={forceSync}
+                      className="text-sm px-3 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors flex items-center gap-1"
+                    >
+                      🔄 Синхронизировать
+                    </button>
                   </div>
                 </div>
               )}
@@ -1518,7 +1654,25 @@ const CashbackOptimizerResponsive = () => {
               <strong>📊 Статус:</strong> Текущий месяц: <span className="font-mono">{currentMonth}</span> • 
               Данные загружены: <span className={dataLoaded ? 'text-green-600' : 'text-red-600'}>{dataLoaded ? '✅' : '❌'}</span> • 
               Пользователь: <span className="font-mono">{user?.uid ? '✅' : '❌'}</span> • 
-              Ручной выбор: <span className={isManualMonthSelection ? 'text-yellow-600' : 'text-gray-600'}>{isManualMonthSelection ? '✅' : '❌'}</span>
+              Ручной выбор: <span className={isManualMonthSelection ? 'text-yellow-600' : 'text-gray-600'}>{isManualMonthSelection ? '✅' : '❌'}</span> • 
+              Синхронизация: <span className={
+                syncStatus === 'syncing' ? 'text-yellow-600' : 
+                syncStatus === 'success' ? 'text-green-600' : 
+                syncStatus === 'conflict' ? 'text-red-600' : 
+                syncStatus === 'error' ? 'text-red-600' : 
+                'text-gray-600'
+              }>{
+                syncStatus === 'syncing' ? '⏳' : 
+                syncStatus === 'success' ? '✅' : 
+                syncStatus === 'conflict' ? '⚠️' : 
+                syncStatus === 'error' ? '❌' : 
+                '✅'
+              }</span>
+              {lastSyncTime && (
+                <span className="text-xs text-gray-600 ml-2">
+                  Последняя синхр.: {new Date(lastSyncTime).toLocaleTimeString()}
+                </span>
+              )}
             </div>
           </div>
         </div>
