@@ -52,7 +52,9 @@ interface SyncedMonthData {
   categories: string[];
   priorityCategories: string[];
   categorySpending: Record<string, number>;
-  optimizationStrategy?: 'rate' | 'cashback'; // Добавляем новое поле
+  optimizationStrategy?: 'rate' | 'cashback';
+  lastModified: number; // Добавляем timestamp
+  deviceId?: string; // Добавляем ID устройства
 }
 
 const CashbackOptimizerResponsive = () => {
@@ -133,6 +135,21 @@ const CashbackOptimizerResponsive = () => {
   const [priorityCategories, setPriorityCategories] = useState(['Супермаркеты', 'Кафе и рестораны', 'Все покупки']);
 
   // Добавляем состояние для стратегии оптимизации
+
+  // Добавляем состояние для отслеживания синхронизации
+  const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'conflict' | 'success' | 'error'>('idle');
+
+  // Функция для получения уникального ID устройства
+  const getDeviceId = () => {
+    let deviceId = localStorage.getItem('deviceId');
+    if (!deviceId) {
+      deviceId = 'device_' + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem('deviceId', deviceId);
+    }
+    return deviceId;
+  };
   const [optimizationStrategy, setOptimizationStrategy] = useState<'rate' | 'cashback'>('rate');
 
   // Функция для принудительного сохранения данных
