@@ -577,6 +577,23 @@ const CashbackOptimizerResponsive = () => {
     return () => clearTimeout(timeoutId);
   }, [monthlyData, banks, categories, priorityCategories, categorySpending, currentMonth, user?.uid, optimizationStrategy, dataLoaded]);
 
+  // Сохранение данных перед закрытием страницы
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (user?.uid && dataLoaded) {
+        console.log('Сохранение данных перед закрытием страницы...');
+        // Синхронное сохранение данных
+        saveDataWithTimestamp();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [user?.uid, dataLoaded]);
+
   const data: MonthlyData = monthlyData[currentMonth] || {};
 
   const checkIsPriority = (category: string) => {
@@ -702,11 +719,11 @@ const CashbackOptimizerResponsive = () => {
         }
       };
       
-      // Принудительно сохраняем данные сразу после изменения
+      // Немедленно сохраняем данные для предотвращения потери последнего значения
       setTimeout(() => {
-        console.log(`Принудительное сохранение данных для месяца ${currentMonth}`);
-        forceSaveData({ monthlyData: newData[currentMonth] || {} });
-      }, 100);
+        console.log(`Немедленное сохранение данных для месяца ${currentMonth}`);
+        saveDataWithTimestamp();
+      }, 50);
       
       return newData;
     });
@@ -1456,6 +1473,12 @@ const CashbackOptimizerResponsive = () => {
                       className="text-sm px-3 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors flex items-center gap-1"
                     >
                       🔄 Синхронизировать
+                    </button>
+                    <button
+                      onClick={saveDataWithTimestamp}
+                      className="text-sm px-3 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors flex items-center gap-1"
+                    >
+                      💾 Сохранить сейчас
                     </button>
                   </div>
                 </div>
